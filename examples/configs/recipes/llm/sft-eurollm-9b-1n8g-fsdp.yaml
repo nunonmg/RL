@@ -1,0 +1,89 @@
+sft:
+  max_num_epochs: 3
+  max_num_steps: 1000000
+  val_period: -1  # Disable validation
+  val_batches: 8
+  val_global_batch_size: 32
+  val_micro_batch_size: 1
+  val_at_start: false
+  seed: 42
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: results/sft-eurollm-9b-1n8g-fsdp
+  metric_name: val_loss
+  higher_is_better: false
+  keep_top_k: 3
+  save_period: 100  # Ignored when save_every_epoch is true
+  save_every_epoch: true  # Save checkpoint at the end of every epoch
+
+policy:
+  model_name: /mnt/shared/models/EuroLLM-9B
+  tokenizer:
+    name: /mnt/shared/models/EuroLLM-9B
+    chat_template: "{% for message in messages %}{% if message['role'] == 'assistant' %}{% set role = 'assistant' %}{% else %}{% set role = message['role'] %}{% endif %}<|im_start|>{{ role }}\n{{ message['content'] | trim }}<|im_end|>\n{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant\n'}}{% endif %}"
+  train_global_batch_size: 128  # 8 GPUs * 16 micro_batch_size * 1 gradient_accumulation
+  train_micro_batch_size: 16
+  max_total_sequence_length: 8192
+  precision: bfloat16
+  
+  dtensor_cfg:
+    enabled: true
+    cpu_offload: false
+    sequence_parallel: false
+    activation_checkpointing: true
+    tensor_parallel_size: 2
+    context_parallel_size: 1
+    custom_parallel_plan: null
+    
+  dynamic_batching:
+    enabled: false
+    
+  sequence_packing:
+    enabled: true
+    train_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.train_micro_batch_size}}
+    algorithm: "modified_first_fit_decreasing"
+    sequence_length_round: 64
+    
+  make_sequence_length_divisible_by: ${policy.megatron_cfg.tensor_model_parallel_size}
+  max_grad_norm: 1.0
+  optimizer:
+    name: torch.optim.AdamW
+    kwargs:
+      lr: 7.0e-6
+      weight_decay: 0.01
+      betas:
+        - 0.9
+        - 0.98
+      eps: 1e-5
+      foreach: false
+      fused: false
+
+data:
+  max_input_seq_length: 8192
+  dataset_name: "openai_format_hf"
+  train_data_path: "/mnt/shared/post-training/sft_datasets/EuroBlocks-SFT-0525"
+  chat_key: "conversations"
+  add_bos: true
+  add_eos: true
+  add_generation_prompt: true
+
+logger:
+  log_dir: logs/sft-eurollm-9b-1n8g-fsdp
+  wandb_enabled: false
+  tensorboard_enabled: true
+  mlflow_enabled: false
+  monitor_gpus: true
+  num_val_samples_to_print: 0
+  wandb:
+    project: nemo-rl
+    name: sft-eurollm-9b-1n8g-fsdp
+  tensorboard:
+    log_dir: tb_logs-sft-eurollm-9b-fsdp
+  gpu_monitoring:
+    collection_interval: 10
+    flush_interval: 10
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1

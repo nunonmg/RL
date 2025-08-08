@@ -310,6 +310,10 @@ def assert_no_double_bos(token_ids: torch.Tensor, tokenizer: TokenizerType) -> N
     """
     if tokenizer.bos_token_id is not None:
         token_ids_list = token_ids.tolist()
+        if len(token_ids_list) > 0:
+            assert token_ids_list[0] == tokenizer.bos_token_id, (
+                f"Expected BOS token at the start of the message, but got {token_ids_list[0]}"
+            )
         if len(token_ids_list) > 1:
             assert not (
                 token_ids_list[0] == tokenizer.bos_token_id

@@ -94,6 +94,10 @@ def sft_preprocessor(
 def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
     print("\n▶ Setting up data...")
     data_cls = data_config["dataset_name"]
+
+    train_data_path = data_config.get("train_data_path")
+    val_data_path = data_config.get("val_data_path", None)
+
     if data_cls == "open_assistant":
         data = hf_datasets.OasstDataset(
             output_dir="/tmp/open_assistant", seed=data_config["seed"]
@@ -102,8 +106,8 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
         data = hf_datasets.SquadDataset()
     elif data_cls == "prompt_response_dataset":
         data = hf_datasets.PromptResponseDataset(
-            data_config["train_data_path"],
-            data_config["val_data_path"],
+            train_data_path,
+            val_data_path,
             data_config["input_key"],
             data_config["output_key"],
         )
@@ -116,20 +120,36 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
         )
     elif data_cls == "openai_format":
         data = hf_datasets.OpenAIFormatDataset(
-            data_config["train_data_path"],
-            data_config["val_data_path"],
+            train_data_path,
+            val_data_path,
             data_config["chat_key"],
             data_config["system_key"],
             data_config["system_prompt"],
         )
+    elif data_cls == "openai_format_hf":
+        chat_key = data_config["chat_key"]
+        system_key = data_config.get("system_key", None)
+        system_prompt = data_config.get("system_prompt", None)
+        data = hf_datasets.OpenAIFormatHFDataset(
+            train_data_path,
+            val_data_path,
+            chat_key,
+            system_key,
+            system_prompt,
+        )
     else:
         raise ValueError(f"Unknown dataset class: {data_cls}")
+    
+    train_len = len(data.formatted_ds["train"])
+    val_dataset_raw = data.formatted_ds.get("validation", None)
+    val_len = len(val_dataset_raw) if val_dataset_raw else 0
     print(
-        f"  ✓ Training and validation datasets loaded with {len(data.formatted_ds['train'])} and {len(data.formatted_ds['validation'])} samples, respectively."
+        f"  ✓ Training and validation datasets loaded with {train_len} and {val_len} samples, respectively."
     )
 
+
     train_dataset = data.formatted_ds["train"]
-    val_dataset = data.formatted_ds["validation"]
+    val_dataset = val_dataset_raw if val_len > 0 else None
     sft_task_spec = data.task_spec
 
     train_dataset = AllTaskProcessedDataset(
@@ -138,25 +158,29 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
         sft_task_spec,
         partial(
             sft_preprocessor,
-            add_bos=data_config["add_bos"],
-            add_eos=data_config["add_eos"],
-            add_generation_prompt=data_config["add_generation_prompt"],
+            add_bos=data_config.get("add_bos", True),
+            add_eos=data_config.get("add_eos", True),
+            add_generation_prompt=data_config.get("add_generation_prompt", False),
         ),
         max_seq_length=data_config["max_input_seq_length"],
     )
 
-    val_dataset = AllTaskProcessedDataset(
-        val_dataset,
-        tokenizer,
-        sft_task_spec,
-        partial(
-            sft_preprocessor,
-            add_bos=data_config.get("add_bos", True),
-            add_eos=data_config.get("add_eos", True),
-            add_generation_prompt=data_config["add_generation_prompt"],
-        ),
-        max_seq_length=data_config["max_input_seq_length"],
-    )
+    # Only process val_dataset if it exists and is not empty
+    if val_dataset is not None:
+        val_dataset = AllTaskProcessedDataset(
+            val_dataset,
+            tokenizer,
+            sft_task_spec,
+            partial(
+                sft_preprocessor,
+                add_bos=data_config.get("add_bos", True),
+                add_eos=data_config.get("add_eos", True),
+                add_generation_prompt=data_config.get("add_generation_prompt", False),
+            ),
+            max_seq_length=data_config["max_input_seq_length"],
+        )
+    else:
+        val_dataset = None
 
     return train_dataset, val_dataset, sft_task_spec
 

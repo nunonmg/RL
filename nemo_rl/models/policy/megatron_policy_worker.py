@@ -373,6 +373,7 @@ class MegatronPolicyWorker:
         optimizer_path: Optional[str] = None,
         init_optimizer: bool = True,
         init_reference_model: bool = True,
+        train_iters: Optional[int] = None,
         *,
         worker_sharding_annotations: NamedSharding,
         pre_init_communication_queue: Queue,
@@ -575,7 +576,7 @@ class MegatronPolicyWorker:
             train_config=TrainingConfig(
                 micro_batch_size=1,  # ignored
                 global_batch_size=self.cfg["train_global_batch_size"],  # ignored
-                train_iters=1000,  # Default value for inference
+                train_iters=train_iters if train_iters is not None else 1000,  # Use provided value or default for inference
             ),
             optimizer_config=OptimizerConfig(
                 **self.cfg["megatron_cfg"]["optimizer"],
@@ -1099,6 +1100,72 @@ class MegatronPolicyWorker:
                 packed_seq_params = None
                 unpacked_input_ids = input_ids
 
+            # 🔍 DEBUG: Log first batch being sent to the model
+            if not hasattr(self, '_first_batch_logged'):
+                self._first_batch_logged = True
+                rank = get_tensor_model_parallel_rank()
+                print(f"\n{'='*80}")
+                print(f"🔍 FIRST BATCH DEBUG - Rank {rank}")
+                print(f"{'='*80}")
+                
+                # Input IDs details
+                print(f"📊 INPUT IDS:")
+                print(f"  • shape: {input_ids_cp_sharded.shape if input_ids_cp_sharded is not None else None}")
+                if input_ids_cp_sharded is not None:
+                    print(f"  • dtype: {input_ids_cp_sharded.dtype}")
+                    print(f"  • device: {input_ids_cp_sharded.device}")
+                    print(f"  • first 30 tokens: {input_ids_cp_sharded[0, :30].tolist()}")
+                    print(f"  • last 20 tokens: {input_ids_cp_sharded[0, -20:].tolist()}")
+                    print(f"  • total tokens: {input_ids_cp_sharded.shape[1]}")
+                
+                # Position IDs details
+                print(f"\n📐 POSITION IDS:")
+                print(f"  • shape: {position_ids.shape if position_ids is not None else None}")
+                if position_ids is not None:
+                    print(f"  • dtype: {position_ids.dtype}")
+                    print(f"  • first 30 positions: {position_ids[0, :30].tolist()}")
+                    print(f"  • last 20 positions: {position_ids[0, -20:].tolist()}")
+                
+                # Attention mask details
+                print(f"\n👁️ ATTENTION MASK:")
+                print(f"  • shape: {attention_mask.shape if attention_mask is not None else None}")
+                if attention_mask is not None:
+                    print(f"  • dtype: {attention_mask.dtype}")
+                    print(f"  • first 30 values: {attention_mask[0, :30].tolist()}")
+                    print(f"  • unique values: {torch.unique(attention_mask).tolist()}")
+                else:
+                    print(f"  • attention_mask is None (expected for packed sequences)")
+                
+                # Packed sequence parameters
+                print(f"\n📦 SEQUENCE PACKING:")
+                print(f"  • enabled: {self.cfg['sequence_packing']['enabled']}")
+                print(f"  • has_packed_seq_params: {packed_seq_params is not None}")
+                
+                if packed_seq_params is not None:
+                    print(f"  • PackedSeqParams details:")
+                    print(f"    - cu_seqlens_q: {packed_seq_params.cu_seqlens_q.tolist()}")
+                    print(f"    - cu_seqlens_kv: {packed_seq_params.cu_seqlens_kv.tolist()}")
+                    print(f"    - max_seqlen_q: {packed_seq_params.max_seqlen_q}")
+                    print(f"    - max_seqlen_kv: {packed_seq_params.max_seqlen_kv}")
+                    print(f"    - qkv_format: {packed_seq_params.qkv_format}")
+                    
+                    # Analyze sequence boundaries
+                    cu_seqlens = packed_seq_params.cu_seqlens_q.tolist()
+                    if len(cu_seqlens) > 1:
+                        seq_lengths = [cu_seqlens[i+1] - cu_seqlens[i] for i in range(len(cu_seqlens)-1)]
+                        print(f"    - individual sequence lengths: {seq_lengths}")
+                        print(f"    - number of packed sequences: {len(seq_lengths)}")
+                        print(f"    - total tokens in packed sequences: {cu_seqlens[-1]}")
+                
+                # Original batch data
+                print(f"\n📋 ORIGINAL BATCH DATA:")
+                print(f"  • original input_ids shape: {data_dict['input_ids'].shape}")
+                print(f"  • input_lengths: {data_dict['input_lengths'].tolist()}")
+                if 'token_mask' in data_dict:
+                    print(f"  • token_mask shape: {data_dict['token_mask'].shape}")
+                
+                print(f"{'='*80}\n")
+            
             output_tensor = model(
                 input_ids_cp_sharded,
                 position_ids,

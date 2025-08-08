@@ -41,6 +41,8 @@ class CheckpointingConfig(TypedDict):
     metric_name (str | None): Name of the metric to use for determining best checkpoints.
     higher_is_better (bool): Whether higher values of the metric indicate better performance.
     keep_top_k (Optional[int]): Number of best checkpoints to keep. If None, all checkpoints are kept.
+    save_period (int): Number of steps between checkpoints. Ignored if save_every_epoch is True.
+    save_every_epoch (bool): If True, save checkpoint at the end of every epoch.
     """
 
     enabled: bool
@@ -50,6 +52,7 @@ class CheckpointingConfig(TypedDict):
     save_period: int
     keep_top_k: NotRequired[int]
     checkpoint_must_save_by: NotRequired[str | None]
+    save_every_epoch: NotRequired[bool]
 
 
 class CheckpointManager:

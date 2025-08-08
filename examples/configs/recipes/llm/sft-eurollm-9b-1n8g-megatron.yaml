@@ -1,0 +1,126 @@
+sft:
+  max_num_epochs: 3
+  max_num_steps: 1000000
+  val_period: -1  # Disable validation
+  val_batches: 8
+  val_global_batch_size: 32
+  val_micro_batch_size: 1
+  val_at_start: false
+  seed: 42
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: results/sft-eurollm-9b-1n8g-megatron
+  metric_name: val_loss
+  higher_is_better: false
+  keep_top_k: 3
+  save_period: 10000  # Ignored when save_every_epoch is true
+  save_every_epoch: true  # Save checkpoint at the end of every epoch
+
+policy:
+  model_name: /mnt/shared/models/EuroLLM-9B
+  tokenizer:
+    name: /mnt/shared/models/EuroLLM-9B
+    chat_template: "{% for message in messages %}{% if message['role'] == 'assistant' %}{% set role = 'assistant' %}{% else %}{% set role = message['role'] %}{% endif %}<|im_start|>{{ role }}\n{{ message['content'] | trim }}<|im_end|>\n{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant\n'}}{% endif %}"
+  train_global_batch_size: 256  # 8 GPUs * 16 micro_batch_size * 1 gradient_accumulation
+  train_micro_batch_size: 1
+  max_total_sequence_length: 8192
+  precision: bfloat16
+  
+  dtensor_cfg:
+    enabled: false
+    
+  dynamic_batching:
+    enabled: false
+    
+  sequence_packing:
+    enabled: true
+    train_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.train_micro_batch_size}}
+    algorithm: "modified_first_fit_decreasing"
+    sequence_length_round: 64
+    
+  make_sequence_length_divisible_by: ${policy.megatron_cfg.tensor_model_parallel_size}
+  max_grad_norm: 1.0
+  optimizer: null
+  
+  megatron_cfg:
+    enabled: true
+    empty_unused_memory_level: 1
+    activation_checkpointing: false
+    tensor_model_parallel_size: 4
+    expert_tensor_parallel_size: 1
+    expert_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    context_parallel_size: 1
+    pipeline_dtype: ${policy.precision}
+    num_layers_in_first_pipeline_stage: null
+    num_layers_in_last_pipeline_stage: null
+    sequence_parallel: false
+    freeze_moe_router: false
+    moe_router_dtype: null
+    moe_router_load_balancing_type: "aux_loss"
+    moe_router_bias_update_rate: 1e-3
+    apply_rope_fusion: True
+
+    optimizer:
+      optimizer: "adam"
+      lr: 7.0e-6
+      min_lr: 7.0e-7
+      weight_decay: 0.01
+      bf16: true
+      fp16: false
+      params_dtype: "float32"
+      
+      adam_beta1: 0.9
+      adam_beta2: 0.98
+      adam_eps: 1e-5
+      
+      use_distributed_optimizer: true
+      use_precision_aware_optimizer: true
+      
+      clip_grad: ${policy.max_grad_norm}
+      
+    scheduler:
+      start_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
+      end_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
+      weight_decay_incr_style: "constant"
+      lr_decay_style: "cosine"
+      lr_decay_iters: null
+      lr_warmup_iters: 125
+      lr_warmup_init: 7.0e-7
+      
+    distributed_data_parallel_config:
+      grad_reduce_in_fp32: false
+      overlap_grad_reduce: true
+      overlap_param_gather: true
+      average_in_collective: true
+      data_parallel_sharding_strategy: "optim_grads_params"
+
+data:
+  max_input_seq_length: 8192
+  dataset_name: "openai_format_hf"
+  train_data_path: "/mnt/shared/post-training/sft_datasets/EuroBlocks-SFT-0525"
+  chat_key: "conversations"
+  add_bos: true
+  add_eos: true
+  add_generation_prompt: true
+
+logger:
+  log_dir: logs/sft-eurollm-9b-1n8g-megatron
+  wandb_enabled: false
+  tensorboard_enabled: true
+  mlflow_enabled: false
+  monitor_gpus: true
+  num_val_samples_to_print: 0
+  wandb:
+    project: nemo-rl
+    name: sft-eurollm-9b-1n8g-megatron
+  tensorboard:
+    log_dir: tb_logs-sft-eurollm-9b-megatron
+  gpu_monitoring:
+    collection_interval: 10
+    flush_interval: 10
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1

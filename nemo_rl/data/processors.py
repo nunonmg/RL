@@ -40,6 +40,7 @@ def math_data_processor(
     message_log: LLMMessageLogType = []
 
     # system prompt
+    print(f"The system prompt is: {task_data_spec.system_prompt}")
     if task_data_spec.system_prompt:
         sys_prompt: dict[str, str | torch.Tensor] = {
             "role": "system",
@@ -64,7 +65,12 @@ def math_data_processor(
         add_generation_prompt=True,
         add_special_tokens=False,
     )
+    print(f"Processing message: {message}")
+    # [HACK] Strip message of bos token
+    if tokenizer.bos_token_id is not None:
+        message = message.replace(tokenizer.bos_token, "")
     user_message["token_ids"] = tokenizer(message, return_tensors="pt")["input_ids"][0]
+    print(f"Token IDs: {user_message['token_ids']}")
     user_message["content"] = message
     message_log.append(user_message)
 

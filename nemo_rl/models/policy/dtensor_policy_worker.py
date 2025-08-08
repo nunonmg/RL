@@ -931,7 +931,8 @@ class DTensorPolicyWorker:
             step = 0
             for batch_idx, lp_batch in enumerate(
                 itertools.chain(mb_iterator, dummy_iterator)
-            ):
+            ):  
+                
                 step += 1
                 input_ids = lp_batch.get("input_ids").cuda()
                 input_lengths = lp_batch.get("input_lengths")

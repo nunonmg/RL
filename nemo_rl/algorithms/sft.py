@@ -171,6 +171,19 @@ def setup(
     #   Training
     # ==========================
     print("\n▶ Setting up model...")
+    
+    # Calculate actual training steps for proper learning rate scheduling
+    steps_per_epoch = len(train_dataloader)
+    max_num_epochs = sft_config["max_num_epochs"]
+    max_num_steps = sft_config["max_num_steps"]
+    
+    # Total training steps is the minimum of epoch-based and step-based limits
+    total_training_steps = min(steps_per_epoch * max_num_epochs, max_num_steps)
+    print(f"  • Steps per epoch: {steps_per_epoch}")
+    print(f"  • Max epochs: {max_num_epochs}")
+    print(f"  • Max steps: {max_num_steps}")
+    print(f"  • Calculated total training steps: {total_training_steps}")
+    
     policy = Policy(
         cluster=cluster,
         config=policy_config,
@@ -183,6 +196,7 @@ def setup(
         else None,
         init_optimizer=True,
         init_reference_model=False,
+        train_iters=total_training_steps,
     )
     loss_fn = NLLLoss()
     print("  ✓ Model initialized")
@@ -408,6 +422,11 @@ def sft_train(
                             "sample_mask": batch["loss_multiplier"],
                         }
                     )
+                
+                # save train_data["token_mask"][0] to a file for logging
+                with open("train_data_token_mask.txt", "w") as f:
+                    for mask in train_data["token_mask"]:
+                        f.write(" ".join(map(str, mask.tolist())) + "\n")
 
                 print("▶ Taking a training step...")
                 with timer.time("policy_training"):
@@ -553,6 +572,37 @@ def sft_train(
 
             if total_steps >= master_config["sft"]["max_num_steps"]:
                 return
+
+        # Epoch-based checkpointing: save checkpoint at end of epoch if configured
+        if (master_config["checkpointing"]["enabled"] and 
+            master_config["checkpointing"].get("save_every_epoch", False)):
+            
+            print(f"\n💾 Saving epoch-based checkpoint at end of epoch {current_epoch + 1}...")
+            sft_save_state["step"] = 0  # Reset for next epoch
+            sft_save_state["total_steps"] = total_steps
+            sft_save_state["epoch"] = current_epoch + 1  # Save the completed epoch number
+            
+            checkpoint_path = checkpointer.init_tmp_checkpoint(
+                total_steps, sft_save_state, master_config
+            )
+            
+            policy.save_checkpoint(
+                weights_path=os.path.join(
+                    checkpoint_path, "policy", "weights"
+                ),
+                optimizer_path=os.path.join(
+                    checkpoint_path, "policy", "optimizer"
+                ),
+                tokenizer_path=os.path.join(
+                    checkpoint_path, "policy", "tokenizer"
+                ),
+            )
+            torch.save(
+                train_dataloader.state_dict(),
+                os.path.join(checkpoint_path, "train_dataloader.pt"),
+            )
+            checkpointer.finalize_checkpoint(checkpoint_path)
+            print(f"✅ Checkpoint saved to: {checkpoint_path}")
 
         current_epoch += 1
         current_step = 0  # Reset step counter for new epoch

@@ -63,6 +63,7 @@ class Policy(ColocatablePolicyInterface, GenerationInterface):
         weights_path: Optional[PathLike] = None,
         optimizer_path: Optional[PathLike] = None,
         init_reference_model: bool = True,
+        train_iters: Optional[int] = None,
     ):
         if weights_path:
             weights_path = os.path.abspath(weights_path)
@@ -121,6 +122,7 @@ class Policy(ColocatablePolicyInterface, GenerationInterface):
             weights_path=weights_path,
             optimizer_path=optimizer_path,
             init_reference_model=init_reference_model,
+            train_iters=train_iters,
             worker_sharding_annotations=self.sharding_annotations,
             pre_init_communication_queue=pre_init_queue,
         )
